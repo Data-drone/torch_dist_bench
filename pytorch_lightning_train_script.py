@@ -56,7 +56,7 @@ if __name__ == '__main__':
     model = ResnetClassification(*data_module.image_shape, num_classes=data_module.num_classes)
 
     main_train_loop(data_module, model, 
-           num_devices=tot_gpus, root_dir=args.root_folder, 
+           devices=tot_gpus, root_dir=args.root_folder, 
            epochs=total_epochs, strategy=strategy, 
            experiment_path=args.experiment_path, 
            run_name=run_name,
