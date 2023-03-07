@@ -27,15 +27,15 @@ import os
 from sparkdl import HorovodRunner
 import horovod.torch as hvd
 
-import logging
+#
 
-#logging.getLogger().setLevel(logging.INFO)
+#
 
 
 def main_hvd(mlflow_db_host:str, mlflow_db_token:str, 
             data_module:Type[LightningDataModule], model:Type[LightningModule], 
             root_dir:str, epochs: int, run_name:str, experiment_path:str, devices=1, 
-            strategy='horovod', *args, **kwargs):
+            strategy='horovod'):
 
     """
     
@@ -53,6 +53,9 @@ def main_hvd(mlflow_db_host:str, mlflow_db_token:str,
         args/kwargs: Args/Kwargs get fed into the pl.Trainer class
     
     """
+    import logging
+    import horovod.spark.task as tk
+    logging.getLogger().setLevel(logging.INFO)
 
     hvd.init()
 
@@ -63,22 +66,26 @@ def main_hvd(mlflow_db_host:str, mlflow_db_token:str,
 
     ## Multi-gpu seems to work funny....
     # manually set the CUDA VISIBLE DEVICES for current config of 4GPU workers
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
     os.environ['NCCL_P2P_DISABLE'] = '1'
     #
-    
 
+    logging.info('local_rank: {0}'.format(hvd.local_rank()))
+    #available_devices = tk.get_available_devices()
+    device_string = ','.join(str(x) for x in tk.get_available_devices())
+
+    #assert type(available_devices) in [list, int]
 
     return main_train_loop(data_module=data_module, model=model, strategy=strategy, 
-                           devices=devices, node_id=hvd.rank(),
+                           devices=1, node_id=hvd.rank(),
                             world_size=hvd.size(), root_dir=root_dir, epochs=epochs, run_name=run_name, 
-                            experiment_path=experiment_path, *args, **kwargs)
+                            experiment_path=experiment_path)
 
 
 def main_train_loop(data_module:Type[LightningDataModule], model:Type[LightningModule], 
                     strategy:str, root_dir:str, epochs, run_name,
-                    experiment_path, devices, node_id, world_size, *args, **kwargs):
-    
+                    experiment_path, devices, node_id, world_size):
+
     # set saving folders
     log_dir = os.path.join(root_dir, 'logs')
 
@@ -114,16 +121,17 @@ def main_train_loop(data_module:Type[LightningDataModule], model:Type[LightningM
     
     # debug logger
 
-    try:
-        logging.info('CUDA Devices: {0}'.format(os.environ['CUDA_VISIBLE_DEVICES']))
-    except KeyError:
-        logging.info('CUDA VISIBLE DEVICES not set')
+    #try:
+    #    logging.info('CUDA Devices: {0}'.format(os.environ['CUDA_VISIBLE_DEVICES']))
+    #except KeyError:
+    #    logging.info('CUDA VISIBLE DEVICES not set')
     #
 
 
     # main pytorch lightning trainer
     # we also feed all the args/kwargs in
     # See: https://pytorch-lightning.readthedocs.io/en/stable/common/trainer.html
+    # GPUs is deprecated but we can still use it in 1.7.7
     trainer = pl.Trainer(
         max_epochs=epochs,
         log_every_n_steps=100,
@@ -133,9 +141,7 @@ def main_train_loop(data_module:Type[LightningDataModule], model:Type[LightningM
         logger=loggers,
         strategy=strategy,
         profiler=profiler,
-        default_root_dir=root_dir, #otherwise pytorch lightning will write to local
-        *args,
-        **kwargs
+        default_root_dir=root_dir #otherwise pytorch lightning will write to local
         #profiler=profiler # for tensorboard profiler
     )
 
